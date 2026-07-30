@@ -1,0 +1,5 @@
+voyageai
+chromadb
+python-dotenv
+tqdm
+pytest
