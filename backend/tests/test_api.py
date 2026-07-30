@@ -92,6 +92,64 @@ def test_chat_uses_text_rag_retrieval(monkeypatch):
     assert "collection Skin" not in payload["text"]
 
 
+def test_chat_runs_skin_classifier_before_image_rag(monkeypatch):
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_ANON_KEY", raising=False)
+    memory_store.clear()
+    seen = {}
+
+    def fake_classify(image_base64, mime_type=None):
+        seen["classified"] = (image_base64, mime_type)
+        return {
+            "pred_class": "Acne",
+            "pred_class_vi": "Mun trung ca",
+            "confidence": 0.91,
+            "top": [{"label": "Acne", "label_vi": "Mun trung ca", "confidence": 0.91}],
+        }
+
+    async def fake_retrieve(message, image_base64=None):
+        seen["retrieve"] = (message, image_base64)
+        return [
+            {
+                "id": "rag-acne",
+                "documentId": "acne",
+                "source": "ChromaDB Skin",
+                "title": "ACNE - OVERVIEW",
+                "summary": "Acne reference.",
+                "category": "Clinical Reference",
+                "evidenceLevel": "Vector similarity 0.91",
+            }
+        ]
+
+    async def fake_call_llm(prompt):
+        seen["prompt"] = prompt
+        return "The image shortlist points to acne."
+
+    monkeypatch.setattr(app_module, "classify_image_base64", fake_classify)
+    monkeypatch.setattr(app_module, "retrieve_sources", fake_retrieve)
+    monkeypatch.setattr(app_module, "call_llm", fake_call_llm)
+    client = TestClient(app)
+
+    reply = client.post(
+        "/api/chat",
+        json={
+            "message": "Anh nay la benh gi?",
+            "imageBase64": "data:image/png;base64,abc",
+            "mimeType": "image/png",
+        },
+    )
+
+    assert reply.status_code == 200
+    assert seen["classified"] == ("data:image/png;base64,abc", "image/png")
+    assert "Acne" in seen["retrieve"][0]
+    assert "Mun trung ca" in seen["prompt"]
+    assert seen["retrieve"][1] == "data:image/png;base64,abc"
+    payload = reply.json()
+    assert payload["citations"][0]["documentId"] == "acne"
+    assert "Classifier ảnh" in payload["text"]
+    assert "Mun trung ca / Acne (91%)" in payload["text"]
+
+
 def test_fallback_rag_answer_is_user_friendly():
     text = app_module.fallback_rag_answer(
         "Mảng đỏ vảy trắng bạc ở khuỷu tay và đầu gối",

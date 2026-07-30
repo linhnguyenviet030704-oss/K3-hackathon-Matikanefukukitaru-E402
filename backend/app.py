@@ -15,6 +15,7 @@ from .guardrails import (
 )
 from .rag import build_rag_prompt, call_llm, fallback_rag_answer, retrieve_sources
 from .schemas import ChatRequest, ConversationCreate, ConversationPatch, CurrentUser
+from .skin_classifier import classify_image_base64
 from .storage import (
     add_message,
     add_sources,
@@ -48,6 +49,33 @@ async def chat_placeholder(message: str | None, citations: list[dict[str, Any]],
     prompt = build_rag_prompt(message, citations, conversation_context)
     text = await call_llm(prompt)
     return text or fallback_rag_answer(message, citations)
+
+
+def _message_with_classifier(message: str | None, prediction: dict[str, Any] | None) -> str | None:
+    if not prediction:
+        return message
+    hint = _classifier_hint(prediction)
+    if not hint:
+        return message
+    base = (message or "").strip()
+    return f"{base}\nSkin-classifier shortlist: {hint}".strip()
+
+
+def _classifier_hint(prediction: dict[str, Any]) -> str:
+    label = prediction.get("pred_class") or ""
+    label_vi = prediction.get("pred_class_vi") or ""
+    confidence = prediction.get("confidence")
+    parts = [part for part in (label_vi, label) if part]
+    hint = " / ".join(parts) or "unknown"
+    if isinstance(confidence, int | float):
+        hint = f"{hint} ({confidence:.0%})"
+    return hint
+
+
+def _show_classifier(text: str, prediction: dict[str, Any] | None) -> str:
+    if not prediction:
+        return text
+    return f"Classifier ảnh: {_classifier_hint(prediction)}\n\n{text}"
 
 
 @app.get("/api/health")
@@ -153,15 +181,19 @@ async def chat(payload: ChatRequest, user: CurrentUser = Depends(get_current_use
         symptom_summary=payload.symptom_summary,
     )
 
+    classifier_prediction = classify_image_base64(payload.image_base64, payload.mime_type) if payload.image_base64 else None
+    rag_message = _message_with_classifier(payload.message, classifier_prediction)
+
     if not is_dermatology_related(payload.message, payload.image_base64, payload.symptom_summary, previous_messages):
         citations = []
         text = OFF_TOPIC_RESPONSE
-    elif should_reuse_existing_context(payload.message, previous_messages):
+    elif not classifier_prediction and should_reuse_existing_context(payload.message, previous_messages):
         citations = latest_citations(previous_messages)
         text = await chat_placeholder(payload.message, citations, conversation_context)
     else:
-        citations = await retrieve_sources(retrieval_query(payload.message, conversation_context), payload.image_base64)
-        text = await chat_placeholder(payload.message, citations, conversation_context)
+        citations = await retrieve_sources(retrieval_query(rag_message, conversation_context), payload.image_base64)
+        text = await chat_placeholder(rag_message, citations, conversation_context)
+        text = _show_classifier(text, classifier_prediction)
 
     assistant_message = await add_message(conversation_id, user, "assistant", text, citations=citations)
     if citations:
