@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.env
+
+# Knowledge base artifacts (large files)
+data/vectorstore/
+data/processed/chunks/
+data/processed/metadata/
+
+# Raw documents (may contain copyrighted material)
+data/raw/textbooks/*.pdf
+data/raw/guidelines/*.pdf
+
+# pytest / coverage
+.pytest_cache/
+htmlcov/
+.coverage
+
+data/
