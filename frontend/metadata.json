@@ -1,0 +1,6 @@
+{
+  "name": "DermaCare AI - Dermatology Assistant",
+  "description": "An empathetic, evidence-backed dermatology AI assistant providing skin concern information, lesion image analysis, evidence citation sidebars, and doctor visit summaries.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
